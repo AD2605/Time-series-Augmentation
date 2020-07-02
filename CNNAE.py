@@ -11,17 +11,17 @@ class Encoder(nn.Module):
         self.conv32 = nn.Conv1d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1)
         self.conv1 = nn.Conv1d(in_channels=32, out_channels=1, kernel_size=3, stride=1, padding=1)
 
-        self.upconv32 = nn.Conv1d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1)
-        self.upconv64 = nn.Conv1d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
-        self.upconv128 = nn.Conv1d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)
-        self.upconv256 = nn.Conv1d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1)
-        self.downsample = nn.Conv1d(in_channels=256, out_channels=22, kernel_size=1, stride=1)
+        self.upconv32 = nn.ConvTranspose1d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.upconv64 = nn.ConvTranspose1d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+        self.upconv128 = nn.ConvTranspose1d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)
+        self.upconv256 = nn.ConvTranspose1d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1)
+        self.downsample = nn.ConvTranspose1d(in_channels=256, out_channels=22, kernel_size=1, stride=1)
 
         self.prelu256 = nn.PReLU(num_parameters=256)
         self.prelu128 = nn.PReLU(num_parameters=128)
         self.prelu64 = nn.PReLU(num_parameters=64)
         self.prelu32 = nn.PReLU(num_parameters=32)
-        self.min_loss = 100
+        self.min_loss = 10000
 
     def forward(self, x):
         out_256 = self.conv256(x)
@@ -50,13 +50,13 @@ class Encoder(nn.Module):
 
         out = self.upconv256(out) + out_256
 
-        return encoded, self.downsample(out)
+        return encoded, self.downsample(out)+x
 
     def train_model(self, model, epochs, train, test):
         model.cuda()
-        loss_func1 = nn.MSELoss().cuda()
+        loss_func = nn.MSELoss(reduction='sum').cuda()
 
-        optim = torch.optim.SGD(model.parameters(), lr=1e-3)
+        optim = torch.optim.Adam(model.parameters(), lr=1e-3)
         for i in range(0, epochs+1):
             val_accuracy = 0
             model.train()
@@ -64,23 +64,20 @@ class Encoder(nn.Module):
                 optim.zero_grad()
                 x = x.cuda()
                 encoded, out = model(x)
-                loss = loss_func1(out, x)
+                loss = loss_func(out, x)
                 loss.backward()
                 optim.step()
 
             print('---testing---')
             with torch.no_grad():
                 model.eval()
-                for (x,y) in test:
+                for (x, y) in test:
                     x = x.cuda()
-                    y = y.cuda()
                     encoded, out = model(x)
                     loss = loss_func(out, x)
                     val_accuracy += loss.item()
-                    if torch.argmax(lstm_out) == y.cuda():
-                        val_accuracy+=1
-                if val_accuracy < self.min_acc:
+                if val_accuracy < self.min_loss:
                     print('saving')
                     print(val_accuracy)
-                    torch.save(model.state_dict(), '/home/atharva/encoder_classifier.pth')
-                    self.min_acc = val_accuracy
+                    torch.save(model.state_dict(), '/home/atharva/encoder_1_2.pth')
+                    self.min_loss = val_accuracy
